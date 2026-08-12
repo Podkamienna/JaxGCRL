@@ -162,6 +162,30 @@ def make_maze(maze_layout_name, maze_size_scaling):
                     rgba="0.7 0.5 0.3 1.0",
                 )
 
+    # Visual-only markers for path subgoals (do not collide / affect dynamics).
+    subgoal_visuals = (
+        (SUBGOAL_A, "subgoal_a", "1.0 0.5 0.05 1.0"),
+        (SUBGOAL_B, "subgoal_b", "0.58 0.40 0.74 1.0"),
+    )
+    for marker, name, rgba in subgoal_visuals:
+        for i, j in find_marker_cells(maze_layout, marker):
+            ET.SubElement(
+                worldbody,
+                "geom",
+                name=name,
+                pos="%f %f %f"
+                % (
+                    i * maze_size_scaling,
+                    j * maze_size_scaling,
+                    0.6,
+                ),
+                size="0.7",
+                type="sphere",
+                contype="0",
+                conaffinity="0",
+                rgba=rgba,
+            )
+
     tree = tree.getroot()
     xml_string = ET.tostring(tree)
 
