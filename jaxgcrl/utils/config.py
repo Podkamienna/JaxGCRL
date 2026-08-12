@@ -39,6 +39,18 @@ class RunConfig:
     # environment to use
     env: Literal[legal_envs]
 
+    # multi_path task name (e.g. south_to_north); only used by simple_multi_path
+    task_name: Optional[str] = None
+
+    # Goal reward gating for multi_path: dense | either | only_a | only_b
+    subgoal_reward_mode: Literal["dense", "either", "only_a", "only_b"] = "dense"
+
+    # Sparse goal bonus when gated success is achieved
+    goal_bonus: float = 10.0
+
+    # End episode on gated success (recommended for sparse multi_path PPO)
+    terminate_on_success: bool = False
+
     # total number of environment steps to run
     total_env_steps: int = 50_000_000
 

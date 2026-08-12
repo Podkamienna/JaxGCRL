@@ -59,6 +59,27 @@ def test_multi_path_has_exactly_two_subgoals():
     assert len(find_marker_cells(MULTI_PATH_MAZE, SUBGOAL_B)) == 1
 
 
+def test_path_constraint_modes_match_experiment_intent():
+    """either = A∨B; only_a / only_b require the named path (pure-Python mirror)."""
+
+    def path_ok(mode, a, b):
+        if mode == "either":
+            return max(a, b)
+        if mode == "only_a":
+            return a
+        if mode == "only_b":
+            return b
+        raise ValueError(mode)
+
+    assert path_ok("either", 0, 0) == 0
+    assert path_ok("either", 1, 0) == 1
+    assert path_ok("either", 0, 1) == 1
+    assert path_ok("only_a", 1, 0) == 1
+    assert path_ok("only_a", 0, 1) == 0
+    assert path_ok("only_b", 0, 1) == 1
+    assert path_ok("only_b", 1, 0) == 0
+
+
 def test_south_to_north_has_two_disjoint_routes_via_subgoals():
     start = MULTI_PATH_TASKS["south_to_north"]["start"]
     goal = MULTI_PATH_TASKS["south_to_north"]["goal"]

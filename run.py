@@ -55,9 +55,15 @@ def main(config: Config):
         mode="online" if config.run.log_wandb else "disabled",
     )
 
-    env = create_env(env_name=config.run.env, backend=config.run.backend)
+    env_kwargs = {
+        "task_name": config.run.task_name,
+        "subgoal_reward_mode": config.run.subgoal_reward_mode,
+        "goal_bonus": config.run.goal_bonus,
+        "terminate_on_success": config.run.terminate_on_success,
+    }
+    env = create_env(env_name=config.run.env, backend=config.run.backend, **env_kwargs)
     if config.run.eval_env:
-        eval_env = create_env(env_name=config.run.eval_env, backend=config.run.backend)
+        eval_env = create_env(env_name=config.run.eval_env, backend=config.run.backend, **env_kwargs)
     else:
         eval_env = env
 
@@ -80,6 +86,11 @@ def main(config: Config):
         "eval/episode_success_any",
         "eval/episode_success_easy",
         "eval/episode_success_hard",
+        "eval/episode_success_ungated",
+        "eval/episode_visited_a",
+        "eval/episode_visited_b",
+        "eval/episode_path_ok",
+        "eval/episode_reward_goal",
         "training/actor_loss",
         "training/log_alpha",
         "training/alpha_loss",
