@@ -4,7 +4,9 @@ Circular / ring corridor for `simple_multi_path`. From the south start to the
 north goal there are two routes (west and east); **subgoal A** sits on the west
 path and **subgoal B** on the east path.
 
-Generate / refresh these PNGs:
+## Schematic layout PNGs
+
+Generate / refresh schematic grid plots:
 
 ```bash
 python scripts/plot_multi_path_maze.py
@@ -19,8 +21,13 @@ python scripts/plot_multi_path_maze.py
 | `multi_path_southeast_to_northwest.png` | Southeast → northwest |
 | `multi_path_south_to_northwest.png` | South → northwest |
 
-## Brax-instantiated views
+## MuJoCo / brax-instantiated renders
 
-Top-down / 3D plots drawn from the real MuJoCo geoms after
-`SimpleMaze(maze_layout_name="multi_path", task_name=...).reset()` live in
-`brax_instantiated/`.
+`brax_instantiated/` contains real `mujoco.Renderer` RGB frames after
+`SimpleMaze(maze_layout_name="multi_path", task_name=...).reset()`:
+
+- `*_render.png` — oblique free-camera overview
+- `*_render_topdown.png` — near top-down free-camera view
+
+These are the same renderer path as brax `image.render_array` / MuJoCo offscreen
+frames (not matplotlib geom sketches).
