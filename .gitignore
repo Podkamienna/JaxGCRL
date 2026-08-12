@@ -319,3 +319,6 @@ experiments/
 notebooks/data/
 notebooks/figures/
 
+
+.venv-brax/
+.render-deps/

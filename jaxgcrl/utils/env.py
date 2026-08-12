@@ -61,6 +61,7 @@ legal_envs = (
     "simple_u_maze",
     "simple_big_maze",
     "simple_hardest_maze",
+    "simple_multi_path",
 )
 
 
@@ -101,8 +102,8 @@ def create_env(env_name: str, backend: str = None, **kwargs) -> object:
             # Possible env_name = {'humanoid_u_maze', 'humanoid_big_maze', 'humanoid_hardest_maze'}
             env = HumanoidMaze(backend=backend or "spring", maze_layout_name=env_name[9:])
         else:
-            # Possible env_name = {'simple_u_maze', 'simple_big_maze', 'simple_hardest_maze'}
-            env = SimpleMaze(backend=backend or "spring", maze_layout_name=env_name[7:])
+            # Possible env_name = {'simple_u_maze', 'simple_big_maze', 'simple_hardest_maze', 'simple_multi_path'}
+            env = SimpleMaze(backend=backend or "spring", maze_layout_name=env_name[7:], **kwargs)
     elif env_name == "cheetah":
         env = Halfcheetah()
     elif env_name == "pusher_easy":
