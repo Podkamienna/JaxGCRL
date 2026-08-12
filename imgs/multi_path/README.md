@@ -18,3 +18,9 @@ python scripts/plot_multi_path_maze.py
 | `multi_path_southwest_to_north.png` | Southwest → north |
 | `multi_path_southeast_to_northwest.png` | Southeast → northwest |
 | `multi_path_south_to_northwest.png` | South → northwest |
+
+## Brax-instantiated views
+
+Top-down / 3D plots drawn from the real MuJoCo geoms after
+`SimpleMaze(maze_layout_name="multi_path", task_name=...).reset()` live in
+`brax_instantiated/`.
