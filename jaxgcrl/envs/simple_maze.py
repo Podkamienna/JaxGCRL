@@ -163,10 +163,16 @@ def make_maze(maze_layout_name, maze_size_scaling):
                 )
 
     # Visual-only markers for path subgoals (do not collide / affect dynamics).
+    # Sized to nearly fill the 1-cell corridor so an agent cannot slip past
+    # without intersecting the subgoal volume (visit checks can use the same radius).
+    subgoal_radius = 0.0
     subgoal_visuals = (
         (SUBGOAL_A, "subgoal_a", "1.0 0.5 0.05 1.0"),
         (SUBGOAL_B, "subgoal_b", "0.58 0.40 0.74 1.0"),
     )
+    has_subgoals = any(find_marker_cells(maze_layout, marker) for marker, _, _ in subgoal_visuals)
+    if has_subgoals:
+        subgoal_radius = 0.45 * maze_size_scaling
     for marker, name, rgba in subgoal_visuals:
         for i, j in find_marker_cells(maze_layout, marker):
             ET.SubElement(
@@ -177,9 +183,9 @@ def make_maze(maze_layout_name, maze_size_scaling):
                 % (
                     i * maze_size_scaling,
                     j * maze_size_scaling,
-                    0.6,
+                    subgoal_radius,
                 ),
-                size="0.7",
+                size="%f" % subgoal_radius,
                 type="sphere",
                 contype="0",
                 conaffinity="0",
@@ -189,7 +195,7 @@ def make_maze(maze_layout_name, maze_size_scaling):
     tree = tree.getroot()
     xml_string = ET.tostring(tree)
 
-    return xml_string, possible_starts, possible_goals, possible_subgoals
+    return xml_string, possible_starts, possible_goals, possible_subgoals, subgoal_radius
 
 
 class SimpleMaze(PipelineEnv):
@@ -210,7 +216,7 @@ class SimpleMaze(PipelineEnv):
         task_name=None,
         **kwargs,
     ):
-        xml_string, possible_starts, possible_goals, possible_subgoals = make_maze(
+        xml_string, possible_starts, possible_goals, possible_subgoals, subgoal_radius = make_maze(
             maze_layout_name, maze_size_scaling
         )
 
@@ -221,6 +227,8 @@ class SimpleMaze(PipelineEnv):
         self.possible_starts = possible_starts
         self.possible_goals = possible_goals
         self.possible_subgoals = possible_subgoals
+        self.subgoal_radius = subgoal_radius
+        self.subgoal_reach_thresh = float(subgoal_radius)
         self.task_name = task_name
         self._task = None
         if task_name is not None:
