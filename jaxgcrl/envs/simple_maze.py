@@ -8,6 +8,15 @@ from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
 from jax import numpy as jnp
 
+from jaxgcrl.envs.multi_path_layout import (
+    MULTI_PATH_MAZE,
+    MULTI_PATH_TASKS,
+    SUBGOAL_A,
+    SUBGOAL_B,
+    cell_to_xy,
+    find_marker_cells,
+)
+
 # This is based on original Ant environment from Brax
 # https://github.com/google/brax/blob/main/brax/envs/ant.py
 # Maze creation dapted from: https://github.com/Farama-Foundation/D4RL/blob/master/d4rl/locomotion/maze_env.py
@@ -70,6 +79,15 @@ HARDEST_MAZE = [
 
 MAZE_HEIGHT = 0.5
 
+MAZE_LAYOUTS = {
+    "u_maze": U_MAZE,
+    "u_maze_eval": U_MAZE_EVAL,
+    "big_maze": BIG_MAZE,
+    "big_maze_eval": BIG_MAZE_EVAL,
+    "hardest_maze": HARDEST_MAZE,
+    "multi_path": MULTI_PATH_MAZE,
+}
+
 
 def find_starts(structure, size_scaling):
     starts = []
@@ -91,25 +109,28 @@ def find_goals(structure, size_scaling):
     return jnp.array(goals)
 
 
+def find_subgoals(structure, size_scaling):
+    """Return xy positions for path-A then path-B subgoals (may be empty)."""
+    subgoals = []
+    for marker in (SUBGOAL_A, SUBGOAL_B):
+        for i, j in find_marker_cells(structure, marker):
+            subgoals.append([i * size_scaling, j * size_scaling])
+    if not subgoals:
+        return jnp.zeros((0, 2))
+    return jnp.array(subgoals)
+
+
 # Create a xml with maze and a list of possible goal positions
 def make_maze(maze_layout_name, maze_size_scaling):
-    if maze_layout_name == "u_maze":
-        maze_layout = U_MAZE
-    elif maze_layout_name == "u_maze_eval":
-        maze_layout = U_MAZE_EVAL
-    elif maze_layout_name == "big_maze":
-        maze_layout = BIG_MAZE
-    elif maze_layout_name == "big_maze_eval":
-        maze_layout = BIG_MAZE_EVAL
-    elif maze_layout_name == "hardest_maze":
-        maze_layout = HARDEST_MAZE
-    else:
+    if maze_layout_name not in MAZE_LAYOUTS:
         raise ValueError(f"Unknown maze layout: {maze_layout_name}")
+    maze_layout = MAZE_LAYOUTS[maze_layout_name]
 
     xml_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "assets", "simple_maze.xml")
 
     possible_starts = find_starts(maze_layout, maze_size_scaling)
     possible_goals = find_goals(maze_layout, maze_size_scaling)
+    possible_subgoals = find_subgoals(maze_layout, maze_size_scaling)
 
     tree = ET.parse(xml_path)
     worldbody = tree.find(".//worldbody")
@@ -144,7 +165,7 @@ def make_maze(maze_layout_name, maze_size_scaling):
     tree = tree.getroot()
     xml_string = ET.tostring(tree)
 
-    return xml_string, possible_starts, possible_goals
+    return xml_string, possible_starts, possible_goals, possible_subgoals
 
 
 class SimpleMaze(PipelineEnv):
@@ -162,13 +183,28 @@ class SimpleMaze(PipelineEnv):
         backend="generalized",
         maze_layout_name="u_maze",
         maze_size_scaling=4.0,
+        task_name=None,
         **kwargs,
     ):
-        xml_string, possible_starts, possible_goals = make_maze(maze_layout_name, maze_size_scaling)
+        xml_string, possible_starts, possible_goals, possible_subgoals = make_maze(
+            maze_layout_name, maze_size_scaling
+        )
 
         sys = mjcf.loads(xml_string)
+        self.maze_layout_name = maze_layout_name
+        self.maze_size_scaling = maze_size_scaling
+        self.maze_layout = MAZE_LAYOUTS[maze_layout_name]
         self.possible_starts = possible_starts
         self.possible_goals = possible_goals
+        self.possible_subgoals = possible_subgoals
+        self.task_name = task_name
+        self._task = None
+        if task_name is not None:
+            if maze_layout_name != "multi_path":
+                raise ValueError("task_name is only supported for multi_path maze layouts")
+            if task_name not in MULTI_PATH_TASKS:
+                raise ValueError(f"Unknown multi_path task: {task_name}")
+            self._task = MULTI_PATH_TASKS[task_name]
 
         n_frames = 5
 
@@ -308,9 +344,13 @@ class SimpleMaze(PipelineEnv):
 
     def _random_target(self, rng: jax.Array) -> jax.Array:
         """Returns a random target location chosen from possibilities specified in the maze layout."""
+        if self._task is not None:
+            return jnp.array(cell_to_xy(self._task["goal"], self.maze_size_scaling))
         idx = jax.random.randint(rng, (1,), 0, len(self.possible_goals))
         return jnp.array(self.possible_goals[idx])[0]
 
     def _random_start(self, rng: jax.Array) -> jax.Array:
+        if self._task is not None:
+            return jnp.array(cell_to_xy(self._task["start"], self.maze_size_scaling))
         idx = jax.random.randint(rng, (1,), 0, len(self.possible_starts))
         return jnp.array(self.possible_starts[idx])[0]
