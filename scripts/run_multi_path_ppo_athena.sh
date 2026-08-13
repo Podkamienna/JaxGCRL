@@ -10,11 +10,12 @@ set -eo pipefail
 
 MODE="${1:-either}"
 SEED="${2:-0}"
-EXP_NAME="${3:-mp-ppo-small-sg-${MODE}-s${SEED}}"
+EXP_NAME="${3:-mp-ppo-small2-sg-${MODE}-s${SEED}}"
 
 python run.py ppo \
   --env simple_multi_path_small \
   --task_name south_to_north \
+  --maze_size_scaling 2.0 \
   --subgoal_reward_mode "${MODE}" \
   --goal_bonus 10.0 \
   --subgoal_bonus 1.0 \
@@ -23,7 +24,7 @@ python run.py ppo \
   --seed "${SEED}" \
   --exp_name "${EXP_NAME}" \
   --wandb_project_name jaxgcrl-multipath \
-  --wandb_group "mp-ppo-small-sg-${MODE}" \
+  --wandb_group "mp-ppo-small2-sg-${MODE}" \
   --log_wandb \
   --total_env_steps 20000000 \
   --episode_length 1000 \

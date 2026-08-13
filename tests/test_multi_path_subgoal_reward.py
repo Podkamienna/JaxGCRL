@@ -34,6 +34,16 @@ def _teleport(env: SimpleMaze, state, xy):
     return state.replace(pipeline_state=ps, obs=env._get_obs(ps))
 
 
+def test_small_maze_default_cell_size_is_half():
+    from jaxgcrl.utils.env import create_env
+
+    small = create_env("simple_multi_path_small", backend="spring")
+    full = create_env("simple_multi_path", backend="spring")
+    assert small.maze_size_scaling == 2.0
+    assert full.maze_size_scaling == 4.0
+    assert small.subgoal_reach_thresh == pytest.approx(0.9)
+
+
 def _make_env(mode: str) -> SimpleMaze:
     return SimpleMaze(
         backend="spring",

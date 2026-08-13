@@ -30,6 +30,6 @@ export XLA_PYTHON_CLIENT_MEM_FRACTION=0.9
 
 MODE="${1:-either}"
 SEED="${2:-0}"
-EXP_NAME="${3:-mp-sac-small-sg-${MODE}-s${SEED}}"
+EXP_NAME="${3:-mp-sac-small2-sg-${MODE}-s${SEED}}"
 
 bash scripts/run_multi_path_sac_athena.sh "$MODE" "$SEED" "$EXP_NAME"

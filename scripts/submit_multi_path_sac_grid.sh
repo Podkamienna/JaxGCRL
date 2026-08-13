@@ -8,7 +8,7 @@ mkdir -p logs
 
 for mode in either only_a; do
   for seed in 0 1 2; do
-    sbatch scripts/multi_path_sac.sbatch "$mode" "$seed" "mp-sac-small-sg-${mode}-s${seed}"
+    sbatch scripts/multi_path_sac.sbatch "$mode" "$seed" "mp-sac-small2-sg-${mode}-s${seed}"
   done
 done
 

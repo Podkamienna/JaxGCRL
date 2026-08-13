@@ -51,6 +51,9 @@ class RunConfig:
     # First-visit bonus at a path-valid subgoal (0 disables waypoint shaping)
     subgoal_bonus: float = 0.0
 
+    # Physical cell size; None lets create_env pick a default (2.0 for simple_multi_path_small)
+    maze_size_scaling: Optional[float] = None
+
     # End episode on gated success (recommended for sparse multi_path PPO)
     terminate_on_success: bool = False
 

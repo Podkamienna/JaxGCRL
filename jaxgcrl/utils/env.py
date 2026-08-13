@@ -107,7 +107,11 @@ def create_env(env_name: str, backend: str = None, **kwargs) -> object:
         else:
             # Possible env_name = {'simple_u_maze', ..., 'simple_multi_path', 'simple_multi_path_small'}
             # simple_multi_path* does not contain the substring "maze".
-            env = SimpleMaze(backend=backend or "spring", maze_layout_name=env_name[7:], **kwargs)
+            layout = env_name[7:]
+            maze_kwargs = dict(kwargs)
+            if layout == "multi_path_small":
+                maze_kwargs.setdefault("maze_size_scaling", 2.0)
+            env = SimpleMaze(backend=backend or "spring", maze_layout_name=layout, **maze_kwargs)
     elif env_name == "cheetah":
         env = Halfcheetah()
     elif env_name == "pusher_easy":

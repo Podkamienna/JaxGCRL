@@ -62,6 +62,8 @@ def main(config: Config):
         "subgoal_bonus": config.run.subgoal_bonus,
         "terminate_on_success": config.run.terminate_on_success,
     }
+    if config.run.maze_size_scaling is not None:
+        env_kwargs["maze_size_scaling"] = config.run.maze_size_scaling
     env = create_env(env_name=config.run.env, backend=config.run.backend, **env_kwargs)
     if config.run.eval_env:
         eval_env = create_env(env_name=config.run.eval_env, backend=config.run.backend, **env_kwargs)
