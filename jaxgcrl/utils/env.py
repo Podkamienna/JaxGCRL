@@ -8,8 +8,10 @@ from typing import List
 
 import flax.linen as nn
 import jax
+import numpy as np
 import wandb_osh
 from brax.io import html
+from brax.io import image as brax_image
 from matplotlib import pyplot as plt
 from wandb_osh.hooks import TriggerWandbSyncHook
 
@@ -324,20 +326,53 @@ def render(make_policy, params, env, exp_dir, exp_name, num_steps):
     key = jax.random.PRNGKey(seed=1)
     key, subkey = jax.random.split(key)
     state = jit_env_reset(rng=subkey)
-    for i in range(5000):
+    # One episode, overhead video (OGBench-style), not a long 3D HTML tour.
+    for i in range(1000):
         rollout.append(state.pipeline_state)
         key, subkey = jax.random.split(key)
         action, _ = jit_policy(state.obs[None], subkey)  # Policy requires batched dimension
         action = action[0]  # Remove batch dimension
         state = jit_env_step(state, action)
-        if i % 1000 == 0:
-            key, subkey = jax.random.split(key)
-            state = jit_env_reset(rng=subkey)
 
     url = html.render(env.sys.tree_replace({"opt.timestep": env.dt}), rollout, height=1024)
     with open(os.path.join(exp_dir, f"{exp_name}_{num_steps}.html"), "w") as file:
         file.write(url)
-    wandb.log({"render": wandb.Html(url)})
+    log_payload = {"render_html": wandb.Html(url)}
+    topdown = _topdown_video(env, rollout, os.path.join(exp_dir, f"{exp_name}_{num_steps}_topdown.mp4"))
+    if topdown is not None:
+        log_payload["render"] = topdown
+    wandb.log(log_payload)
+
+
+def _has_camera(sys, name: str) -> bool:
+    model = getattr(sys, "mj_model", None)
+    if model is None:
+        return False
+    return any(model.camera(i).name == name for i in range(model.ncam))
+
+
+def _topdown_video(env, rollout, mp4_path: str, height: int = 480, width: int = 480, fps: int = 15):
+    """OGBench-like overhead RGB video. Returns wandb.Video or None if no topdown camera."""
+    if not _has_camera(env.sys, "topdown"):
+        return None
+    # Subsample so logging stays cheap (one eval episode, not 5k HTML frames).
+    stride = max(1, len(rollout) // 250)
+    frames = brax_image.render_array(
+        env.sys,
+        rollout[::stride],
+        height=height,
+        width=width,
+        camera="topdown",
+    )
+    arr = np.asarray(frames, dtype=np.uint8)
+    try:
+        import imageio.v2 as imageio
+
+        imageio.mimsave(mp4_path, arr, fps=fps)
+        return wandb.Video(mp4_path, fps=fps, format="mp4")
+    except Exception:
+        # wandb expects (T, C, H, W)
+        return wandb.Video(np.transpose(arr, (0, 3, 1, 2)), fps=fps, format="mp4")
 
 
 def render_policy(params, save_path, env, actor, eval_env, vis_length):

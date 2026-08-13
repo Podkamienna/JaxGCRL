@@ -145,6 +145,29 @@ def make_maze(maze_layout_name, maze_size_scaling):
 
     tree = ET.parse(xml_path)
     worldbody = tree.find(".//worldbody")
+    root = tree.getroot()
+    visual = root.find("visual")
+    if visual is None:
+        visual = ET.SubElement(root, "visual")
+    glob = visual.find("global")
+    if glob is None:
+        glob = ET.SubElement(visual, "global")
+    glob.set("offwidth", "640")
+    glob.set("offheight", "640")
+
+    # OGBench-style overhead camera (look straight down at the maze center).
+    nrows, ncols = len(maze_layout), len(maze_layout[0])
+    cx = 0.5 * (nrows - 1) * maze_size_scaling
+    cy = 0.5 * (ncols - 1) * maze_size_scaling
+    cz = 1.25 * max(nrows, ncols) * maze_size_scaling
+    ET.SubElement(
+        worldbody,
+        "camera",
+        name="topdown",
+        pos="%f %f %f" % (cx, cy, cz),
+        xyaxes="1 0 0 0 1 0",
+        fovy="45",
+    )
 
     for i in range(len(maze_layout)):
         for j in range(len(maze_layout[0])):
