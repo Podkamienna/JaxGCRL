@@ -24,6 +24,8 @@ SUBGOAL_B = _layout.SUBGOAL_B
 find_marker_cells = _layout.find_marker_cells
 is_open = _layout.is_open
 is_wall = _layout.is_wall
+north_south_open_cells = _layout.north_south_open_cells
+side_corridor_xy_range = _layout.side_corridor_xy_range
 
 
 def _neighbors(maze, cell):
@@ -145,6 +147,33 @@ def test_first_visit_bonus_follows_path_mode():
     assert bonus("either", 1, 1) == 2.0
     assert bonus("only_a", 1, 0) == 1.0
     assert bonus("only_a", 0, 1) == 0.0
+
+
+def test_ns_sides_exclude_subgoals_and_stay_disconnected_if_both_blocked():
+    for maze in (MULTI_PATH_MAZE, MULTI_PATH_SMALL_MAZE):
+        north, south = north_south_open_cells(maze)
+        sub_a = find_marker_cells(maze, SUBGOAL_A)[0]
+        sub_b = find_marker_cells(maze, SUBGOAL_B)[0]
+        assert north and south
+        assert sub_a not in north and sub_a not in south
+        assert sub_b not in north and sub_b not in south
+        assert len({i for i, _ in north}) == 1
+        assert len({i for i, _ in south}) == 1
+        assert north[0][0] < south[0][0]
+        no_both = _blocked(maze, [sub_a, sub_b])
+        for start in south:
+            for goal in north:
+                assert _shortest_path(no_both, start, goal) is None
+                assert _shortest_path(maze, start, goal) is not None
+
+
+def test_side_corridor_xy_range_is_horizontal():
+    north, south = north_south_open_cells(MULTI_PATH_SMALL_MAZE)
+    sx, sy_lo, sy_hi = side_corridor_xy_range(south, 2.0)
+    gx, gy_lo, gy_hi = side_corridor_xy_range(north, 2.0)
+    assert sx > gx
+    assert sy_lo < sy_hi
+    assert gy_lo < gy_hi
 
 
 def test_all_named_tasks_are_solvable():

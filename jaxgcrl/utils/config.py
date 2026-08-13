@@ -39,7 +39,8 @@ class RunConfig:
     # environment to use
     env: Literal[legal_envs]
 
-    # multi_path task name (e.g. south_to_north); only used by simple_multi_path
+    # multi_path task: random_ns (default) samples start/goal along south/north sides;
+    # named tasks (e.g. south_to_north) pin a fixed cell pair
     task_name: Optional[str] = None
 
     # Goal reward gating for multi_path: dense | either | only_a | only_b

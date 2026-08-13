@@ -12,7 +12,7 @@ EXP_NAME="${3:-mp-sac-her-small-sg-${MODE}-s${SEED}}"
 
 python run.py sac \
   --env simple_multi_path_small \
-  --task_name south_to_north \
+  --task_name random_ns \
   --subgoal_reward_mode "${MODE}" \
   --goal_bonus 10.0 \
   --subgoal_bonus 1.0 \

@@ -13,10 +13,13 @@ from jaxgcrl.envs.multi_path_layout import (
     MULTI_PATH_MAZE,
     MULTI_PATH_SMALL_MAZE,
     MULTI_PATH_TASKS,
+    RANDOM_NS_TASK,
     SUBGOAL_A,
     SUBGOAL_B,
     cell_to_xy,
     find_marker_cells,
+    north_south_open_cells,
+    side_corridor_xy_range,
     tasks_for_layout,
 )
 
@@ -284,7 +287,17 @@ class SimpleMaze(PipelineEnv):
         self.subgoal_reach_thresh = float(subgoal_radius)
         self.task_name = task_name
         self._task = None
-        if task_name is not None:
+        self._ns_side_start = None
+        self._ns_side_goal = None
+        if maze_layout_name in MULTI_PATH_LAYOUT_NAMES and task_name in (None, RANDOM_NS_TASK):
+            # Default multi_path: sample start along the south side, goal along the north.
+            north_cells, south_cells = north_south_open_cells(self.maze_layout)
+            self._ns_side_start = side_corridor_xy_range(south_cells, maze_size_scaling)
+            self._ns_side_goal = side_corridor_xy_range(north_cells, maze_size_scaling)
+            self.possible_starts = jnp.array([cell_to_xy(c, maze_size_scaling) for c in south_cells])
+            self.possible_goals = jnp.array([cell_to_xy(c, maze_size_scaling) for c in north_cells])
+            self.task_name = RANDOM_NS_TASK
+        elif task_name is not None:
             if maze_layout_name not in MULTI_PATH_LAYOUT_NAMES:
                 raise ValueError("task_name is only supported for multi_path maze layouts")
             layout_tasks = tasks_for_layout(maze_layout_name)
@@ -494,11 +507,19 @@ class SimpleMaze(PipelineEnv):
         """Returns a random target location chosen from possibilities specified in the maze layout."""
         if self._task is not None:
             return jnp.array(cell_to_xy(self._task["goal"], self.maze_size_scaling))
+        if self._ns_side_goal is not None:
+            x, y_lo, y_hi = self._ns_side_goal
+            y = jax.random.uniform(rng, (), minval=y_lo, maxval=y_hi)
+            return jnp.array([x, y])
         idx = jax.random.randint(rng, (1,), 0, len(self.possible_goals))
         return jnp.array(self.possible_goals[idx])[0]
 
     def _random_start(self, rng: jax.Array) -> jax.Array:
         if self._task is not None:
             return jnp.array(cell_to_xy(self._task["start"], self.maze_size_scaling))
+        if self._ns_side_start is not None:
+            x, y_lo, y_hi = self._ns_side_start
+            y = jax.random.uniform(rng, (), minval=y_lo, maxval=y_hi)
+            return jnp.array([x, y])
         idx = jax.random.randint(rng, (1,), 0, len(self.possible_starts))
         return jnp.array(self.possible_starts[idx])[0]
