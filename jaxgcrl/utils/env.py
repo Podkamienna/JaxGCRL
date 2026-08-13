@@ -92,7 +92,7 @@ def create_env(env_name: str, backend: str = None, **kwargs) -> object:
         # This is stable only in mjx backend
         assert backend == "mjx" or backend is None
         env = AntPush(backend=backend or "mjx")
-    elif "maze" in env_name:
+    elif "maze" in env_name or env_name == "simple_multi_path":
         if "ant_ball" in env_name:
             env = AntBallMaze(backend=backend or "spring", maze_layout_name=env_name[9:])
         elif "ant" in env_name:
@@ -103,6 +103,7 @@ def create_env(env_name: str, backend: str = None, **kwargs) -> object:
             env = HumanoidMaze(backend=backend or "spring", maze_layout_name=env_name[9:])
         else:
             # Possible env_name = {'simple_u_maze', 'simple_big_maze', 'simple_hardest_maze', 'simple_multi_path'}
+            # simple_multi_path does not contain the substring "maze".
             env = SimpleMaze(backend=backend or "spring", maze_layout_name=env_name[7:], **kwargs)
     elif env_name == "cheetah":
         env = Halfcheetah()

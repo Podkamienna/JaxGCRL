@@ -106,6 +106,15 @@ def test_south_to_north_has_two_disjoint_routes_via_subgoals():
     assert _shortest_path(no_both, start, goal) is None
 
 
+def test_simple_multi_path_is_dispatched_without_maze_substring():
+    """create_env used to match only names containing 'maze', which misses this env."""
+    assert "maze" not in "simple_multi_path"
+    env_py = Path(__file__).resolve().parents[1] / "jaxgcrl" / "utils" / "env.py"
+    text = env_py.read_text()
+    assert 'env_name == "simple_multi_path"' in text
+    assert '"simple_multi_path"' in text
+
+
 def test_all_named_tasks_are_solvable():
     for name, task in MULTI_PATH_TASKS.items():
         path = _shortest_path(MULTI_PATH_MAZE, task["start"], task["goal"])
