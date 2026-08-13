@@ -36,5 +36,5 @@ python run.py sac \
   --reward_scaling 1.0 \
   --normalize_observations \
   --min_replay_size 1000 \
-  --max_replay_size 1000000 \
+  --max_replay_size 50000 \
   --action_repeat 1
