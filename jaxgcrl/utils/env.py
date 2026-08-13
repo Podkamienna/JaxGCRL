@@ -8,8 +8,10 @@ from typing import List
 
 import flax.linen as nn
 import jax
+import numpy as np
 import wandb_osh
 from brax.io import html
+from brax.io import image as brax_image
 from matplotlib import pyplot as plt
 from wandb_osh.hooks import TriggerWandbSyncHook
 
@@ -62,6 +64,7 @@ legal_envs = (
     "simple_big_maze",
     "simple_hardest_maze",
     "simple_multi_path",
+    "simple_multi_path_small",
 )
 
 
@@ -92,7 +95,7 @@ def create_env(env_name: str, backend: str = None, **kwargs) -> object:
         # This is stable only in mjx backend
         assert backend == "mjx" or backend is None
         env = AntPush(backend=backend or "mjx")
-    elif "maze" in env_name:
+    elif "maze" in env_name or env_name.startswith("simple_multi_path"):
         if "ant_ball" in env_name:
             env = AntBallMaze(backend=backend or "spring", maze_layout_name=env_name[9:])
         elif "ant" in env_name:
@@ -102,8 +105,13 @@ def create_env(env_name: str, backend: str = None, **kwargs) -> object:
             # Possible env_name = {'humanoid_u_maze', 'humanoid_big_maze', 'humanoid_hardest_maze'}
             env = HumanoidMaze(backend=backend or "spring", maze_layout_name=env_name[9:])
         else:
-            # Possible env_name = {'simple_u_maze', 'simple_big_maze', 'simple_hardest_maze', 'simple_multi_path'}
-            env = SimpleMaze(backend=backend or "spring", maze_layout_name=env_name[7:], **kwargs)
+            # Possible env_name = {'simple_u_maze', ..., 'simple_multi_path', 'simple_multi_path_small'}
+            # simple_multi_path* does not contain the substring "maze".
+            layout = env_name[7:]
+            maze_kwargs = dict(kwargs)
+            if layout == "multi_path_small":
+                maze_kwargs.setdefault("maze_size_scaling", 2.0)
+            env = SimpleMaze(backend=backend or "spring", maze_layout_name=layout, **maze_kwargs)
     elif env_name == "cheetah":
         env = Halfcheetah()
     elif env_name == "pusher_easy":
@@ -323,20 +331,58 @@ def render(make_policy, params, env, exp_dir, exp_name, num_steps):
     key = jax.random.PRNGKey(seed=1)
     key, subkey = jax.random.split(key)
     state = jit_env_reset(rng=subkey)
-    for i in range(5000):
+    # One episode, overhead video (OGBench-style), not a long 3D HTML tour.
+    for i in range(1000):
         rollout.append(state.pipeline_state)
         key, subkey = jax.random.split(key)
         action, _ = jit_policy(state.obs[None], subkey)  # Policy requires batched dimension
         action = action[0]  # Remove batch dimension
         state = jit_env_step(state, action)
-        if i % 1000 == 0:
-            key, subkey = jax.random.split(key)
-            state = jit_env_reset(rng=subkey)
 
     url = html.render(env.sys.tree_replace({"opt.timestep": env.dt}), rollout, height=1024)
     with open(os.path.join(exp_dir, f"{exp_name}_{num_steps}.html"), "w") as file:
         file.write(url)
-    wandb.log({"render": wandb.Html(url)})
+    log_payload = {"render_html": wandb.Html(url)}
+    try:
+        topdown = _topdown_video(env, rollout, os.path.join(exp_dir, f"{exp_name}_{num_steps}_topdown.mp4"))
+        if topdown is not None:
+            log_payload["render"] = topdown
+    except Exception:
+        logging.exception("Top-down video logging failed; continuing without wandb.Video")
+    wandb.log(log_payload)
+
+
+def _has_camera(sys, name: str) -> bool:
+    model = getattr(sys, "mj_model", None)
+    if model is None:
+        return False
+    return any(model.camera(i).name == name for i in range(model.ncam))
+
+
+def _topdown_video(env, rollout, mp4_path: str, height: int = 480, width: int = 480, fps: int = 15):
+    """OGBench-like overhead RGB video. Returns wandb.Video or None if no topdown camera."""
+    if not _has_camera(env.sys, "topdown"):
+        return None
+    # Subsample so logging stays cheap (one eval episode, not 5k HTML frames).
+    stride = max(1, len(rollout) // 250)
+    frames = brax_image.render_array(
+        env.sys,
+        rollout[::stride],
+        height=height,
+        width=width,
+        camera="topdown",
+    )
+    arr = np.asarray(frames, dtype=np.uint8)
+    # Prefer a file wandb can upload without moviepy (Athena jaxgcrl env has neither ffmpeg nor moviepy).
+    gif_path = mp4_path.rsplit(".", 1)[0] + ".gif"
+    try:
+        import imageio.v2 as imageio
+
+        imageio.mimsave(gif_path, list(arr), duration=1.0 / fps, loop=0)
+        return wandb.Video(gif_path, fps=fps, format="gif")
+    except Exception:
+        logging.exception("Failed to write top-down gif")
+        return None
 
 
 def render_policy(params, save_path, env, actor, eval_env, vis_length):

@@ -9,12 +9,18 @@ from brax.io import mjcf
 from jax import numpy as jnp
 
 from jaxgcrl.envs.multi_path_layout import (
+    MULTI_PATH_LAYOUT_NAMES,
     MULTI_PATH_MAZE,
+    MULTI_PATH_SMALL_MAZE,
     MULTI_PATH_TASKS,
+    RANDOM_NS_TASK,
     SUBGOAL_A,
     SUBGOAL_B,
     cell_to_xy,
     find_marker_cells,
+    north_south_open_cells,
+    side_corridor_xy_range,
+    tasks_for_layout,
 )
 
 # This is based on original Ant environment from Brax
@@ -23,6 +29,28 @@ from jaxgcrl.envs.multi_path_layout import (
 
 RESET = R = "r"
 GOAL = G = "g"
+
+
+def gated_path_ok(mode: str, visited_a, visited_b):
+    """Whether visited subgoals satisfy the path constraint for goal credit."""
+    if mode == "either":
+        return jnp.maximum(visited_a, visited_b)
+    if mode == "only_a":
+        return visited_a
+    if mode == "only_b":
+        return visited_b
+    raise ValueError(f"gated_path_ok expects either/only_a/only_b, got {mode!r}")
+
+
+def gated_subgoal_step_bonus(mode: str, first_a, first_b, bonus):
+    """First-visit bonus on subgoals that count for the path constraint."""
+    if mode == "either":
+        return (first_a + first_b) * bonus
+    if mode == "only_a":
+        return first_a * bonus
+    if mode == "only_b":
+        return first_b * bonus
+    raise ValueError(f"gated_subgoal_step_bonus expects either/only_a/only_b, got {mode!r}")
 
 
 U_MAZE = [
@@ -86,6 +114,7 @@ MAZE_LAYOUTS = {
     "big_maze_eval": BIG_MAZE_EVAL,
     "hardest_maze": HARDEST_MAZE,
     "multi_path": MULTI_PATH_MAZE,
+    "multi_path_small": MULTI_PATH_SMALL_MAZE,
 }
 
 
@@ -134,6 +163,29 @@ def make_maze(maze_layout_name, maze_size_scaling):
 
     tree = ET.parse(xml_path)
     worldbody = tree.find(".//worldbody")
+    root = tree.getroot()
+    visual = root.find("visual")
+    if visual is None:
+        visual = ET.SubElement(root, "visual")
+    glob = visual.find("global")
+    if glob is None:
+        glob = ET.SubElement(visual, "global")
+    glob.set("offwidth", "640")
+    glob.set("offheight", "640")
+
+    # OGBench-style overhead camera (look straight down at the maze center).
+    nrows, ncols = len(maze_layout), len(maze_layout[0])
+    cx = 0.5 * (nrows - 1) * maze_size_scaling
+    cy = 0.5 * (ncols - 1) * maze_size_scaling
+    cz = 1.25 * max(nrows, ncols) * maze_size_scaling
+    ET.SubElement(
+        worldbody,
+        "camera",
+        name="topdown",
+        pos="%f %f %f" % (cx, cy, cz),
+        xyaxes="1 0 0 0 1 0",
+        fovy="45",
+    )
 
     for i in range(len(maze_layout)):
         for j in range(len(maze_layout[0])):
@@ -214,6 +266,10 @@ class SimpleMaze(PipelineEnv):
         maze_layout_name="u_maze",
         maze_size_scaling=4.0,
         task_name=None,
+        subgoal_reward_mode="dense",
+        goal_bonus=10.0,
+        subgoal_bonus=0.0,
+        terminate_on_success=False,
         **kwargs,
     ):
         xml_string, possible_starts, possible_goals, possible_subgoals, subgoal_radius = make_maze(
@@ -231,12 +287,35 @@ class SimpleMaze(PipelineEnv):
         self.subgoal_reach_thresh = float(subgoal_radius)
         self.task_name = task_name
         self._task = None
-        if task_name is not None:
-            if maze_layout_name != "multi_path":
+        self._ns_side_start = None
+        self._ns_side_goal = None
+        if maze_layout_name in MULTI_PATH_LAYOUT_NAMES and task_name in (None, RANDOM_NS_TASK):
+            # Default multi_path: sample start along the south side, goal along the north.
+            north_cells, south_cells = north_south_open_cells(self.maze_layout)
+            self._ns_side_start = side_corridor_xy_range(south_cells, maze_size_scaling)
+            self._ns_side_goal = side_corridor_xy_range(north_cells, maze_size_scaling)
+            self.possible_starts = jnp.array([cell_to_xy(c, maze_size_scaling) for c in south_cells])
+            self.possible_goals = jnp.array([cell_to_xy(c, maze_size_scaling) for c in north_cells])
+            self.task_name = RANDOM_NS_TASK
+        elif task_name is not None:
+            if maze_layout_name not in MULTI_PATH_LAYOUT_NAMES:
                 raise ValueError("task_name is only supported for multi_path maze layouts")
-            if task_name not in MULTI_PATH_TASKS:
+            layout_tasks = tasks_for_layout(maze_layout_name)
+            if task_name not in layout_tasks:
                 raise ValueError(f"Unknown multi_path task: {task_name}")
-            self._task = MULTI_PATH_TASKS[task_name]
+            self._task = layout_tasks[task_name]
+
+        valid_modes = ("dense", "either", "only_a", "only_b")
+        if subgoal_reward_mode not in valid_modes:
+            raise ValueError(f"Unknown subgoal_reward_mode={subgoal_reward_mode!r}; expected one of {valid_modes}")
+        if subgoal_reward_mode != "dense" and maze_layout_name not in MULTI_PATH_LAYOUT_NAMES:
+            raise ValueError("subgoal_reward_mode other than 'dense' requires a multi_path maze layout")
+        if subgoal_reward_mode != "dense" and len(possible_subgoals) < 2:
+            raise ValueError("subgoal-gated rewards require two subgoals in the maze layout")
+        self.subgoal_reward_mode = subgoal_reward_mode
+        self.goal_bonus = float(goal_bonus)
+        self.subgoal_bonus = float(subgoal_bonus)
+        self.terminate_on_success = bool(terminate_on_success)
 
         n_frames = 5
 
@@ -306,6 +385,8 @@ class SimpleMaze(PipelineEnv):
             "reward_survive": zero,
             "reward_ctrl": zero,
             "reward_contact": zero,
+            "reward_goal": zero,
+            "reward_subgoal": zero,
             "x_position": zero,
             "y_position": zero,
             "distance_from_origin": zero,
@@ -315,8 +396,15 @@ class SimpleMaze(PipelineEnv):
             "dist": zero,
             "success": zero,
             "success_easy": zero,
+            "success_ungated": zero,
+            "visited_a": zero,
+            "visited_b": zero,
+            "path_ok": zero,
         }
         state = State(pipeline_state, obs, reward, done, metrics)
+        # Episode flags for subgoal-gated goal rewards.
+        state.info["visited_a"] = zero
+        state.info["visited_b"] = zero
         return state
 
     # Todo rename seed to traj_id
@@ -341,15 +429,52 @@ class SimpleMaze(PipelineEnv):
         obs = self._get_obs(pipeline_state)
         done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
 
-        dist = jnp.linalg.norm(obs[:2] - obs[-2:])
-        success = jnp.array(dist < self.goal_reach_thresh, dtype=float)
+        pos = pipeline_state.x.pos[0, :2]
+        target = pipeline_state.x.pos[-1, :2]
+        dist = jnp.linalg.norm(pos - target)
+        at_goal = jnp.array(dist < self.goal_reach_thresh, dtype=float)
         success_easy = jnp.array(dist < 2.0, dtype=float)
-        reward = -dist + healthy_reward - ctrl_cost - contact_cost
+
+        # Accumulate subgoal visits (no-op for dense / non-multi_path).
+        if self.subgoal_reward_mode == "dense":
+            visited_a = state.info["visited_a"]
+            visited_b = state.info["visited_b"]
+            path_ok = jnp.ones(())
+            goal_reward = jnp.zeros(())
+            subgoal_reward = jnp.zeros(())
+            success = at_goal
+            reward = -dist + healthy_reward - ctrl_cost - contact_cost
+        else:
+            sg_a = self.possible_subgoals[0]
+            sg_b = self.possible_subgoals[1]
+            hit_a = jnp.array(jnp.linalg.norm(pos - sg_a) < self.subgoal_reach_thresh, dtype=float)
+            hit_b = jnp.array(jnp.linalg.norm(pos - sg_b) < self.subgoal_reach_thresh, dtype=float)
+            prev_a = state.info["visited_a"]
+            prev_b = state.info["visited_b"]
+            first_a = hit_a * (1.0 - prev_a)
+            first_b = hit_b * (1.0 - prev_b)
+            visited_a = jnp.maximum(prev_a, hit_a)
+            visited_b = jnp.maximum(prev_b, hit_b)
+            path_ok = gated_path_ok(self.subgoal_reward_mode, visited_a, visited_b)
+            success = at_goal * path_ok
+            goal_reward = success * self.goal_bonus
+            subgoal_reward = gated_subgoal_step_bonus(
+                self.subgoal_reward_mode, first_a, first_b, self.subgoal_bonus
+            )
+            # Sparse objective: waypoint bonus + gated goal bonus + light control cost.
+            reward = goal_reward + subgoal_reward - ctrl_cost - contact_cost
+            if self.terminate_on_success:
+                done = jnp.maximum(done, success)
+
+        state.info["visited_a"] = visited_a
+        state.info["visited_b"] = visited_b
         state.metrics.update(
             reward_forward=forward_reward,
             reward_survive=healthy_reward,
             reward_ctrl=-ctrl_cost,
             reward_contact=-contact_cost,
+            reward_goal=goal_reward,
+            reward_subgoal=subgoal_reward,
             x_position=pipeline_state.x.pos[0, 0],
             y_position=pipeline_state.x.pos[0, 1],
             distance_from_origin=math.safe_norm(pipeline_state.x.pos[0]),
@@ -359,6 +484,10 @@ class SimpleMaze(PipelineEnv):
             dist=dist,
             success=success,
             success_easy=success_easy,
+            success_ungated=at_goal,
+            visited_a=visited_a,
+            visited_b=visited_b,
+            path_ok=path_ok,
         )
         return state.replace(pipeline_state=pipeline_state, obs=obs, reward=reward, done=done)
 
@@ -378,11 +507,19 @@ class SimpleMaze(PipelineEnv):
         """Returns a random target location chosen from possibilities specified in the maze layout."""
         if self._task is not None:
             return jnp.array(cell_to_xy(self._task["goal"], self.maze_size_scaling))
+        if self._ns_side_goal is not None:
+            x, y_lo, y_hi = self._ns_side_goal
+            y = jax.random.uniform(rng, (), minval=y_lo, maxval=y_hi)
+            return jnp.array([x, y])
         idx = jax.random.randint(rng, (1,), 0, len(self.possible_goals))
         return jnp.array(self.possible_goals[idx])[0]
 
     def _random_start(self, rng: jax.Array) -> jax.Array:
         if self._task is not None:
             return jnp.array(cell_to_xy(self._task["start"], self.maze_size_scaling))
+        if self._ns_side_start is not None:
+            x, y_lo, y_hi = self._ns_side_start
+            y = jax.random.uniform(rng, (), minval=y_lo, maxval=y_hi)
+            return jnp.array([x, y])
         idx = jax.random.randint(rng, (1,), 0, len(self.possible_starts))
         return jnp.array(self.possible_starts[idx])[0]

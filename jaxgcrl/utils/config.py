@@ -39,6 +39,25 @@ class RunConfig:
     # environment to use
     env: Literal[legal_envs]
 
+    # multi_path task: random_ns (default) samples start/goal along south/north sides;
+    # named tasks (e.g. south_to_north) pin a fixed cell pair
+    task_name: Optional[str] = None
+
+    # Goal reward gating for multi_path: dense | either | only_a | only_b
+    subgoal_reward_mode: Literal["dense", "either", "only_a", "only_b"] = "dense"
+
+    # Sparse goal bonus when gated success is achieved
+    goal_bonus: float = 10.0
+
+    # First-visit bonus at a path-valid subgoal (0 disables waypoint shaping)
+    subgoal_bonus: float = 0.0
+
+    # Physical cell size; None lets create_env pick a default (2.0 for simple_multi_path_small)
+    maze_size_scaling: Optional[float] = None
+
+    # End episode on gated success (recommended for sparse multi_path PPO)
+    terminate_on_success: bool = False
+
     # total number of environment steps to run
     total_env_steps: int = 50_000_000
 
