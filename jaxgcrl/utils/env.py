@@ -339,9 +339,12 @@ def render(make_policy, params, env, exp_dir, exp_name, num_steps):
     with open(os.path.join(exp_dir, f"{exp_name}_{num_steps}.html"), "w") as file:
         file.write(url)
     log_payload = {"render_html": wandb.Html(url)}
-    topdown = _topdown_video(env, rollout, os.path.join(exp_dir, f"{exp_name}_{num_steps}_topdown.mp4"))
-    if topdown is not None:
-        log_payload["render"] = topdown
+    try:
+        topdown = _topdown_video(env, rollout, os.path.join(exp_dir, f"{exp_name}_{num_steps}_topdown.mp4"))
+        if topdown is not None:
+            log_payload["render"] = topdown
+    except Exception:
+        logging.exception("Top-down video logging failed; continuing without wandb.Video")
     wandb.log(log_payload)
 
 
@@ -366,14 +369,16 @@ def _topdown_video(env, rollout, mp4_path: str, height: int = 480, width: int = 
         camera="topdown",
     )
     arr = np.asarray(frames, dtype=np.uint8)
+    # Prefer a file wandb can upload without moviepy (Athena jaxgcrl env has neither ffmpeg nor moviepy).
+    gif_path = mp4_path.rsplit(".", 1)[0] + ".gif"
     try:
         import imageio.v2 as imageio
 
-        imageio.mimsave(mp4_path, arr, fps=fps)
-        return wandb.Video(mp4_path, fps=fps, format="mp4")
+        imageio.mimsave(gif_path, list(arr), duration=1.0 / fps, loop=0)
+        return wandb.Video(gif_path, fps=fps, format="gif")
     except Exception:
-        # wandb expects (T, C, H, W)
-        return wandb.Video(np.transpose(arr, (0, 3, 1, 2)), fps=fps, format="mp4")
+        logging.exception("Failed to write top-down gif")
+        return None
 
 
 def render_policy(params, save_path, env, actor, eval_env, vis_length):
