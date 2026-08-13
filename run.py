@@ -65,8 +65,17 @@ def main(config: Config):
     if config.run.maze_size_scaling is not None:
         env_kwargs["maze_size_scaling"] = config.run.maze_size_scaling
     env = create_env(env_name=config.run.env, backend=config.run.backend, **env_kwargs)
-    if config.run.eval_env:
-        eval_env = create_env(env_name=config.run.eval_env, backend=config.run.backend, **env_kwargs)
+
+    eval_kwargs = dict(env_kwargs)
+    eval_mode = config.run.eval_subgoal_reward_mode
+    if eval_mode is None and config.run.subgoal_reward_mode in ("either", "only_a", "only_b"):
+        # Compare only_a vs either on the same eval: either-path success + both waypoint bonuses.
+        eval_mode = "either"
+    if eval_mode is not None:
+        eval_kwargs["subgoal_reward_mode"] = eval_mode
+    eval_env_name = config.run.eval_env or config.run.env
+    if config.run.eval_env or eval_kwargs != env_kwargs:
+        eval_env = create_env(env_name=eval_env_name, backend=config.run.backend, **eval_kwargs)
     else:
         eval_env = env
 

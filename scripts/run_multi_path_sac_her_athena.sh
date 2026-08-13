@@ -14,6 +14,7 @@ python run.py sac \
   --env simple_multi_path_small \
   --task_name random_ns \
   --subgoal_reward_mode "${MODE}" \
+  --eval_subgoal_reward_mode either \
   --goal_bonus 10.0 \
   --subgoal_bonus 1.0 \
   --terminate_on_success \

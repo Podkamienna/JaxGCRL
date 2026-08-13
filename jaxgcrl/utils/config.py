@@ -43,8 +43,11 @@ class RunConfig:
     # named tasks (e.g. south_to_north) pin a fixed cell pair
     task_name: Optional[str] = None
 
-    # Goal reward gating for multi_path: dense | either | only_a | only_b
+    # Training-only path gating for multi_path: dense | either | only_a | only_b
     subgoal_reward_mode: Literal["dense", "either", "only_a", "only_b"] = "dense"
+
+    # Eval path gating. None = either for gated train modes so arms share one eval task
+    eval_subgoal_reward_mode: Optional[Literal["dense", "either", "only_a", "only_b"]] = None
 
     # Sparse goal bonus when gated success is achieved
     goal_bonus: float = 10.0

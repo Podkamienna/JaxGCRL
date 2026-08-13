@@ -23,6 +23,7 @@ def test_gated_path_ok_modes():
 
 def test_gated_subgoal_step_bonus():
     assert float(gated_subgoal_step_bonus("either", 1.0, 0.0, 1.0)) == 1.0
+    assert float(gated_subgoal_step_bonus("either", 0.0, 1.0, 1.0)) == 1.0
     assert float(gated_subgoal_step_bonus("only_a", 0.0, 1.0, 1.0)) == 0.0
     assert float(gated_subgoal_step_bonus("only_a", 1.0, 0.0, 1.0)) == 1.0
 
