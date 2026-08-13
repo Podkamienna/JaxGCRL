@@ -42,6 +42,35 @@ MULTI_PATH_TASKS: Dict[str, Dict[str, Coord]] = {
     "south_to_northwest": {"start": (7, 4), "goal": (1, 1)},
 }
 
+# Tighter ring (7x7) for easier exploration while keeping two disjoint paths.
+MULTI_PATH_SMALL_MAZE: List[List[Cell]] = [
+    [1, 1, 1, 1, 1, 1, 1],
+    [1, 0, 0, G, 0, 0, 1],
+    [1, 0, 1, 1, 1, 0, 1],
+    [1, A, 1, 1, 1, B, 1],
+    [1, 0, 1, 1, 1, 0, 1],
+    [1, 0, 0, R, 0, 0, 1],
+    [1, 1, 1, 1, 1, 1, 1],
+]
+
+MULTI_PATH_SMALL_TASKS: Dict[str, Dict[str, Coord]] = {
+    "south_to_north": {"start": (5, 3), "goal": (1, 3)},
+    "south_to_northeast": {"start": (5, 3), "goal": (1, 5)},
+    "southwest_to_north": {"start": (5, 1), "goal": (1, 3)},
+    "southeast_to_northwest": {"start": (5, 5), "goal": (1, 1)},
+    "south_to_northwest": {"start": (5, 3), "goal": (1, 1)},
+}
+
+MULTI_PATH_LAYOUT_NAMES = ("multi_path", "multi_path_small")
+
+
+def tasks_for_layout(maze_layout_name: str) -> Dict[str, Dict[str, Coord]]:
+    if maze_layout_name == "multi_path":
+        return MULTI_PATH_TASKS
+    if maze_layout_name == "multi_path_small":
+        return MULTI_PATH_SMALL_TASKS
+    raise ValueError(f"Not a multi_path layout: {maze_layout_name}")
+
 
 def find_marker_cells(structure: Sequence[Sequence[Cell]], marker: Cell) -> List[Coord]:
     cells: List[Coord] = []

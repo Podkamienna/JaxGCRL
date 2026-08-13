@@ -16,7 +16,9 @@ def _load_layout_module():
 
 _layout = _load_layout_module()
 MULTI_PATH_MAZE = _layout.MULTI_PATH_MAZE
+MULTI_PATH_SMALL_MAZE = _layout.MULTI_PATH_SMALL_MAZE
 MULTI_PATH_TASKS = _layout.MULTI_PATH_TASKS
+MULTI_PATH_SMALL_TASKS = _layout.MULTI_PATH_SMALL_TASKS
 SUBGOAL_A = _layout.SUBGOAL_A
 SUBGOAL_B = _layout.SUBGOAL_B
 find_marker_cells = _layout.find_marker_cells
@@ -109,10 +111,40 @@ def test_south_to_north_has_two_disjoint_routes_via_subgoals():
 def test_simple_multi_path_is_dispatched_without_maze_substring():
     """create_env used to match only names containing 'maze', which misses this env."""
     assert "maze" not in "simple_multi_path"
+    assert "maze" not in "simple_multi_path_small"
     env_py = Path(__file__).resolve().parents[1] / "jaxgcrl" / "utils" / "env.py"
     text = env_py.read_text()
-    assert 'env_name == "simple_multi_path"' in text
-    assert '"simple_multi_path"' in text
+    assert 'env_name.startswith("simple_multi_path")' in text
+    assert '"simple_multi_path_small"' in text
+
+
+def test_small_south_to_north_has_two_disjoint_routes():
+    start = MULTI_PATH_SMALL_TASKS["south_to_north"]["start"]
+    goal = MULTI_PATH_SMALL_TASKS["south_to_north"]["goal"]
+    sub_a = find_marker_cells(MULTI_PATH_SMALL_MAZE, SUBGOAL_A)[0]
+    sub_b = find_marker_cells(MULTI_PATH_SMALL_MAZE, SUBGOAL_B)[0]
+    assert _shortest_path(MULTI_PATH_SMALL_MAZE, start, goal) is not None
+    path_east = _shortest_path(_blocked(MULTI_PATH_SMALL_MAZE, [sub_a]), start, goal)
+    path_west = _shortest_path(_blocked(MULTI_PATH_SMALL_MAZE, [sub_b]), start, goal)
+    assert path_east is not None and sub_b in path_east
+    assert path_west is not None and sub_a in path_west
+    assert _shortest_path(_blocked(MULTI_PATH_SMALL_MAZE, [sub_a, sub_b]), start, goal) is None
+
+
+def test_first_visit_bonus_follows_path_mode():
+    def bonus(mode, first_a, first_b, amount=1.0):
+        if mode == "either":
+            return (first_a + first_b) * amount
+        if mode == "only_a":
+            return first_a * amount
+        if mode == "only_b":
+            return first_b * amount
+        raise ValueError(mode)
+
+    assert bonus("either", 1, 0) == 1.0
+    assert bonus("either", 1, 1) == 2.0
+    assert bonus("only_a", 1, 0) == 1.0
+    assert bonus("only_a", 0, 1) == 0.0
 
 
 def test_all_named_tasks_are_solvable():

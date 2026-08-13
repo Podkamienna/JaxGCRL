@@ -48,6 +48,9 @@ class RunConfig:
     # Sparse goal bonus when gated success is achieved
     goal_bonus: float = 10.0
 
+    # First-visit bonus at a path-valid subgoal (0 disables waypoint shaping)
+    subgoal_bonus: float = 0.0
+
     # End episode on gated success (recommended for sparse multi_path PPO)
     terminate_on_success: bool = False
 

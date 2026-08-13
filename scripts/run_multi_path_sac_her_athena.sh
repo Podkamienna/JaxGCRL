@@ -8,19 +8,20 @@ set -eo pipefail
 
 MODE="${1:-either}"
 SEED="${2:-0}"
-EXP_NAME="${3:-mp-sac-her-${MODE}-s${SEED}}"
+EXP_NAME="${3:-mp-sac-her-small-sg-${MODE}-s${SEED}}"
 
 python run.py sac \
-  --env simple_multi_path \
+  --env simple_multi_path_small \
   --task_name south_to_north \
   --subgoal_reward_mode "${MODE}" \
   --goal_bonus 10.0 \
+  --subgoal_bonus 1.0 \
   --terminate_on_success \
   --backend spring \
   --seed "${SEED}" \
   --exp_name "${EXP_NAME}" \
   --wandb_project_name jaxgcrl-multipath \
-  --wandb_group "mp-sac-her-${MODE}" \
+  --wandb_group "mp-sac-her-small-sg-${MODE}" \
   --log_wandb \
   --use_her \
   --total_env_steps 20000000 \

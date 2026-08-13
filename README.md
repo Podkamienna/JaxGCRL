@@ -183,7 +183,7 @@ We currently support a variety of continuous control environments:
 | Ant Push        | `ant_push`                                                               | [link](./jaxgcrl/envs/ant_push.py)                        |
 | Humanoid        | `humanoid`                                                               | [link](./jaxgcrl/envs/humanoid.py)                        |
 | Humanoid Maze   | `humanoid_u_maze` <br> `humanoid_big_maze` <br>`humanoid_hardest_maze`   | [link](./jaxgcrl/envs/humanoid_maze.py)                   |
-| Point Maze      | `simple_u_maze` <br> `simple_big_maze` <br> `simple_hardest_maze` <br> `simple_multi_path` | [link](./jaxgcrl/envs/simple_maze.py) |
+| Point Maze      | `simple_u_maze` <br> `simple_big_maze` <br> `simple_hardest_maze` <br> `simple_multi_path` <br> `simple_multi_path_small` | [link](./jaxgcrl/envs/simple_maze.py) |
 | Arm Reach       | `arm_reach`                                                              | [link](./jaxgcrl/envs/manipulation/arm_reach.py)          |
 | Arm Grasp       | `arm_grasp`                                                              | [link](./jaxgcrl/envs/manipulation/arm_grasp.py)          |
 | Arm Push        | `arm_push_easy` <br> `arm_push_hard`                                     | [link](./jaxgcrl/envs/manipulation/arm_push_easy.py)      |

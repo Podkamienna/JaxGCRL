@@ -59,6 +59,7 @@ def main(config: Config):
         "task_name": config.run.task_name,
         "subgoal_reward_mode": config.run.subgoal_reward_mode,
         "goal_bonus": config.run.goal_bonus,
+        "subgoal_bonus": config.run.subgoal_bonus,
         "terminate_on_success": config.run.terminate_on_success,
     }
     env = create_env(env_name=config.run.env, backend=config.run.backend, **env_kwargs)
@@ -91,6 +92,7 @@ def main(config: Config):
         "eval/episode_visited_b",
         "eval/episode_path_ok",
         "eval/episode_reward_goal",
+        "eval/episode_reward_subgoal",
         "training/actor_loss",
         "training/log_alpha",
         "training/alpha_loss",

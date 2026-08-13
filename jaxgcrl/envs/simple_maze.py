@@ -9,12 +9,15 @@ from brax.io import mjcf
 from jax import numpy as jnp
 
 from jaxgcrl.envs.multi_path_layout import (
+    MULTI_PATH_LAYOUT_NAMES,
     MULTI_PATH_MAZE,
+    MULTI_PATH_SMALL_MAZE,
     MULTI_PATH_TASKS,
     SUBGOAL_A,
     SUBGOAL_B,
     cell_to_xy,
     find_marker_cells,
+    tasks_for_layout,
 )
 
 # This is based on original Ant environment from Brax
@@ -34,6 +37,17 @@ def gated_path_ok(mode: str, visited_a, visited_b):
     if mode == "only_b":
         return visited_b
     raise ValueError(f"gated_path_ok expects either/only_a/only_b, got {mode!r}")
+
+
+def gated_subgoal_step_bonus(mode: str, first_a, first_b, bonus):
+    """First-visit bonus on subgoals that count for the path constraint."""
+    if mode == "either":
+        return (first_a + first_b) * bonus
+    if mode == "only_a":
+        return first_a * bonus
+    if mode == "only_b":
+        return first_b * bonus
+    raise ValueError(f"gated_subgoal_step_bonus expects either/only_a/only_b, got {mode!r}")
 
 
 U_MAZE = [
@@ -97,6 +111,7 @@ MAZE_LAYOUTS = {
     "big_maze_eval": BIG_MAZE_EVAL,
     "hardest_maze": HARDEST_MAZE,
     "multi_path": MULTI_PATH_MAZE,
+    "multi_path_small": MULTI_PATH_SMALL_MAZE,
 }
 
 
@@ -250,6 +265,7 @@ class SimpleMaze(PipelineEnv):
         task_name=None,
         subgoal_reward_mode="dense",
         goal_bonus=10.0,
+        subgoal_bonus=0.0,
         terminate_on_success=False,
         **kwargs,
     ):
@@ -269,21 +285,23 @@ class SimpleMaze(PipelineEnv):
         self.task_name = task_name
         self._task = None
         if task_name is not None:
-            if maze_layout_name != "multi_path":
+            if maze_layout_name not in MULTI_PATH_LAYOUT_NAMES:
                 raise ValueError("task_name is only supported for multi_path maze layouts")
-            if task_name not in MULTI_PATH_TASKS:
+            layout_tasks = tasks_for_layout(maze_layout_name)
+            if task_name not in layout_tasks:
                 raise ValueError(f"Unknown multi_path task: {task_name}")
-            self._task = MULTI_PATH_TASKS[task_name]
+            self._task = layout_tasks[task_name]
 
         valid_modes = ("dense", "either", "only_a", "only_b")
         if subgoal_reward_mode not in valid_modes:
             raise ValueError(f"Unknown subgoal_reward_mode={subgoal_reward_mode!r}; expected one of {valid_modes}")
-        if subgoal_reward_mode != "dense" and maze_layout_name != "multi_path":
-            raise ValueError("subgoal_reward_mode other than 'dense' requires maze_layout_name='multi_path'")
+        if subgoal_reward_mode != "dense" and maze_layout_name not in MULTI_PATH_LAYOUT_NAMES:
+            raise ValueError("subgoal_reward_mode other than 'dense' requires a multi_path maze layout")
         if subgoal_reward_mode != "dense" and len(possible_subgoals) < 2:
             raise ValueError("subgoal-gated rewards require two subgoals in the maze layout")
         self.subgoal_reward_mode = subgoal_reward_mode
         self.goal_bonus = float(goal_bonus)
+        self.subgoal_bonus = float(subgoal_bonus)
         self.terminate_on_success = bool(terminate_on_success)
 
         n_frames = 5
@@ -355,6 +373,7 @@ class SimpleMaze(PipelineEnv):
             "reward_ctrl": zero,
             "reward_contact": zero,
             "reward_goal": zero,
+            "reward_subgoal": zero,
             "x_position": zero,
             "y_position": zero,
             "distance_from_origin": zero,
@@ -409,6 +428,7 @@ class SimpleMaze(PipelineEnv):
             visited_b = state.info["visited_b"]
             path_ok = jnp.ones(())
             goal_reward = jnp.zeros(())
+            subgoal_reward = jnp.zeros(())
             success = at_goal
             reward = -dist + healthy_reward - ctrl_cost - contact_cost
         else:
@@ -416,13 +436,20 @@ class SimpleMaze(PipelineEnv):
             sg_b = self.possible_subgoals[1]
             hit_a = jnp.array(jnp.linalg.norm(pos - sg_a) < self.subgoal_reach_thresh, dtype=float)
             hit_b = jnp.array(jnp.linalg.norm(pos - sg_b) < self.subgoal_reach_thresh, dtype=float)
-            visited_a = jnp.maximum(state.info["visited_a"], hit_a)
-            visited_b = jnp.maximum(state.info["visited_b"], hit_b)
+            prev_a = state.info["visited_a"]
+            prev_b = state.info["visited_b"]
+            first_a = hit_a * (1.0 - prev_a)
+            first_b = hit_b * (1.0 - prev_b)
+            visited_a = jnp.maximum(prev_a, hit_a)
+            visited_b = jnp.maximum(prev_b, hit_b)
             path_ok = gated_path_ok(self.subgoal_reward_mode, visited_a, visited_b)
             success = at_goal * path_ok
             goal_reward = success * self.goal_bonus
-            # Sparse objective: gated goal bonus + light control cost (no dense -dist).
-            reward = goal_reward - ctrl_cost - contact_cost
+            subgoal_reward = gated_subgoal_step_bonus(
+                self.subgoal_reward_mode, first_a, first_b, self.subgoal_bonus
+            )
+            # Sparse objective: waypoint bonus + gated goal bonus + light control cost.
+            reward = goal_reward + subgoal_reward - ctrl_cost - contact_cost
             if self.terminate_on_success:
                 done = jnp.maximum(done, success)
 
@@ -434,6 +461,7 @@ class SimpleMaze(PipelineEnv):
             reward_ctrl=-ctrl_cost,
             reward_contact=-contact_cost,
             reward_goal=goal_reward,
+            reward_subgoal=subgoal_reward,
             x_position=pipeline_state.x.pos[0, 0],
             y_position=pipeline_state.x.pos[0, 1],
             distance_from_origin=math.safe_norm(pipeline_state.x.pos[0]),

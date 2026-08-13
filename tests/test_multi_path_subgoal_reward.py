@@ -8,7 +8,7 @@ jax = pytest.importorskip("jax")
 jnp = pytest.importorskip("jax.numpy")
 pytest.importorskip("brax")
 
-from jaxgcrl.envs.simple_maze import SimpleMaze, gated_path_ok  # noqa: E402
+from jaxgcrl.envs.simple_maze import SimpleMaze, gated_path_ok, gated_subgoal_step_bonus  # noqa: E402
 
 
 def test_gated_path_ok_modes():
@@ -19,6 +19,12 @@ def test_gated_path_ok_modes():
     assert float(gated_path_ok("only_a", 0.0, 1.0)) == 0.0
     assert float(gated_path_ok("only_b", 0.0, 1.0)) == 1.0
     assert float(gated_path_ok("only_b", 1.0, 0.0)) == 0.0
+
+
+def test_gated_subgoal_step_bonus():
+    assert float(gated_subgoal_step_bonus("either", 1.0, 0.0, 1.0)) == 1.0
+    assert float(gated_subgoal_step_bonus("only_a", 0.0, 1.0, 1.0)) == 0.0
+    assert float(gated_subgoal_step_bonus("only_a", 1.0, 0.0, 1.0)) == 1.0
 
 
 def _teleport(env: SimpleMaze, state, xy):
