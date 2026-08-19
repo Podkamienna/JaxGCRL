@@ -165,12 +165,16 @@ class CRL:
     # layer norm
     use_ln: bool = False
 
-    # A matrix parameters for goal encoder
+    # A matrix / forward-predictor parameters for the goal encoder
     use_A: bool = False
     orthogonal_A: bool = False
-    rotational_A: bool = True
-    rotational_with_Q: bool = True
+    rotational_A: bool = False
+    rotational_with_Q: bool = False
     randomly_initialized_A: bool = True
+    # Ben-style residual MLP as A, applied delta times. Depth>1 replaces matrix A.
+    neural_A: bool = True
+    neural_A_hidden_size: Optional[int] = None
+    neural_A_depth: int = 2
     # If True (with rotational_A), base rotation angle is fixed to pi / rope_alpha for all 2D blocks.
     fixed_rope_A: bool = True
     rope_alpha: float = 108.0
@@ -313,10 +317,16 @@ class CRL:
             half_zero_angles=self.half_zero_angles,
             orthogonal_method=self.orthogonal_method,
             Q_orthogonal_method=self.Q_orthogonal_method,
+            neural_A=self.neural_A,
+            neural_A_hidden_size=self.neural_A_hidden_size,
+            neural_A_depth=self.neural_A_depth,
+            max_A_applications=max(config.episode_length - 1, 1),
         )
- 
-        # Initialize with goal input and dummy delta (scalar)
-        g_encoder_params = g_encoder.init(g_key, np.ones([1, goal_size]), np.array([1, 1]))
+
+        # Initialize with goal input and dummy per-row delta
+        g_encoder_params = g_encoder.init(
+            g_key, np.ones([1, goal_size]), np.ones([1], dtype=np.int32)
+        )
         critic_state = TrainState.create(
             apply_fn=None,
             params={"sa_encoder": sa_encoder_params, "g_encoder": g_encoder_params},

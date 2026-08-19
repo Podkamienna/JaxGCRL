@@ -47,11 +47,13 @@ def main(config: Config):
 
     logging.info("Arguments:\n%s", pprint.pformat(info))
 
+    tags = [t.strip() for t in (config.run.wandb_tags or "").split(",") if t.strip()]
     wandb.init(
         project=config.run.wandb_project_name,
         group=config.run.wandb_group,
         name=config.run.exp_name,
         config=info,
+        tags=tags or None,
         mode="online" if config.run.log_wandb else "disabled",
     )
 

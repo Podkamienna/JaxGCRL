@@ -50,6 +50,40 @@ class Encoder(nn.Module):
         return x
 
 
+class NeuralANet(nn.Module):
+    """Residual MLP used as a nonlinear substitute for the A matrix (Ben ``NeuralANet``).
+
+    Maps ``[batch, repr_dim] -> [batch, repr_dim]``. The last linear is zero-initialized
+    so ``f(x) = x`` at construction, matching identity-initialized matrix ``A``.
+    ``depth`` is the number of linear layers and must be >= 2. With ``depth=2`` this is
+    ``Dense(repr, hidden) -> LayerNorm -> ReLU -> Dense(hidden, repr)`` plus a skip.
+    """
+
+    repr_dim: int
+    hidden_size: int
+    depth: int
+
+    def setup(self):
+        if self.depth < 2:
+            raise ValueError(f"neural_A_depth must be >= 2, got {self.depth}")
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        he = nn.initializers.he_normal()
+        h = x
+        for i in range(self.depth - 1):
+            h = nn.Dense(self.hidden_size, kernel_init=he, name=f"h{i}")(h)
+            h = nn.LayerNorm(name=f"ln{i}")(h)
+            h = nn.relu(h)
+        out = nn.Dense(
+            self.repr_dim,
+            kernel_init=nn.initializers.zeros,
+            bias_init=nn.initializers.zeros,
+            name="out",
+        )(h)
+        return x + out
+
+
 class GoalEncoderWithA(nn.Module):
     """Goal encoder that outputs psi and can apply A^delta transformation to get phi."""
     repr_dim: int = 64
@@ -70,12 +104,31 @@ class GoalEncoderWithA(nn.Module):
     rope_alpha: float = 108.0
     # When True with rotational_A, the first half of angle blocks are fixed to 0.
     half_zero_angles: bool = False
+    # Residual-MLP forward predictor (Ben neural_A). depth>1 replaces matrix/rotational A.
+    neural_A: bool = False
+    neural_A_hidden_size: int | None = None
+    neural_A_depth: int = 2
+    max_A_applications: int = 1000
+
+    def _uses_neural_A(self) -> bool:
+        return bool(self.use_A) and bool(self.neural_A) and self.neural_A_depth > 1
 
     def setup(self):
         assert self.orthogonal_method in ["cayley", "qr", "exp"], "Invalid orthogonal method"
         assert self.Q_orthogonal_method in ["cayley", "qr", "exp"], "Invalid Q orthogonal method"
         assert not (self.rotational_A and self.orthogonal_A), "Cannot have both rotational and orthogonal A"
-        
+        if self._uses_neural_A():
+            assert self.use_A, "neural_A with neural_A_depth>1 requires use_A=True"
+            assert not self.orthogonal_A, "Cannot combine neural_A with orthogonal_A"
+            assert not self.rotational_A, "Cannot combine neural_A with rotational_A"
+            assert not self.rotational_with_Q, "Cannot combine neural_A with rotational_with_Q"
+            hidden = self.neural_A_hidden_size if self.neural_A_hidden_size is not None else self.repr_dim
+            self.A_net = NeuralANet(
+                repr_dim=self.repr_dim, hidden_size=int(hidden), depth=self.neural_A_depth
+            )
+            self.log_lambda = self.param("log_lambda", lambda rng: jnp.array(0.0))
+            return
+
         if self.use_A:
             if self.rotational_A:
                 assert self.repr_dim % 2 == 0, "repr_dim must be divisible by 2 when using rotational_A"
@@ -98,6 +151,37 @@ class GoalEncoderWithA(nn.Module):
                     self.A = self.param("A", lambda rng: jnp.eye(self.repr_dim))
         
         self.log_lambda = self.param("log_lambda", lambda rng: jnp.array(0.0))
+
+    def _apply_neural_A(self, psi: jnp.ndarray, delta: jnp.ndarray | None) -> jnp.ndarray:
+        """Apply ``A_net`` ``n`` times per row via ``nn.scan`` and gather.
+
+        Unrolls once up to ``max_A_applications``; stacks
+        ``[psi, f(psi), ..., f^{max}(psi)]`` then indexes with ``n``. ``n = 0``
+        returns ``psi`` unchanged. Matches Ben ``GeneralLNNet._apply_neural_A``.
+        """
+        batch = psi.shape[0]
+        if delta is None:
+            n = jnp.ones((batch,), dtype=jnp.int32)
+        else:
+            n = jnp.asarray(delta, dtype=jnp.int32)
+            if n.ndim == 0:
+                n = jnp.broadcast_to(n, (batch,))
+        n = jnp.clip(n, 0, self.max_A_applications)
+
+        def body(mdl, carry, _):
+            y = mdl.A_net(carry)
+            return y, y
+
+        scan_fn = nn.scan(
+            body,
+            variable_broadcast="params",
+            split_rngs={"params": False},
+            length=self.max_A_applications,
+        )
+        _, iterates = scan_fn(self, psi, None)
+        stacked = jnp.concatenate([psi[None, ...], iterates], axis=0)
+        batch_idx = jnp.arange(batch)
+        return stacked[n, batch_idx]
 
     def _construct_rotational_matrix(self, A_vector, num_A_applications=None):
         """Construct block-diagonal rotational matrix from angles."""
@@ -202,8 +286,10 @@ class GoalEncoderWithA(nn.Module):
         # Output layer
         psi = nn.Dense(self.repr_dim, kernel_init=lecun_uniform, bias_init=bias_init)(x)
 
-        # Apply A matrix transformation if enabled
-        if self.use_A:
+        # Apply A: residual MLP (neural_A) or matrix / rotational A^delta.
+        if self._uses_neural_A():
+            phi = self._apply_neural_A(psi, delta)
+        elif self.use_A:
             if self.rotational_A:
                 if self.fixed_rope_A:
                     A_vector = self._fixed_rope_angles()
