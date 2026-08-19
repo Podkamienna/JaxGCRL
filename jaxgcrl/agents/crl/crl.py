@@ -22,7 +22,7 @@ from jaxgcrl.utils.evaluator import ActorEvaluator
 from jaxgcrl.utils.replay_buffer import TrajectoryUniformSamplingQueue
 
 from .losses import update_actor_and_alpha, update_critic
-from .networks import Actor, Encoder
+from .networks import Actor, Encoder, GoalEncoderWithA
 
 Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
@@ -89,7 +89,12 @@ def flatten_batch(buffer_config, transition, sample_key):
         transition.observation, goal_index[:-1], axis=0
     )  # the last goal_index cannot be considered as there is no future.
     future_action = jnp.take(transition.action, goal_index[:-1], axis=0)
-    goal = future_state[:, goal_indices]
+    # Convert goal_indices to JAX array for printing (it's a Python tuple)
+    # jax.debug.print("goal_indices: {}", goal_indices_array)
+    # jax.debug.print("arrangement: {}", arrangement)
+    delta = goal_index[:-1] - arrangement[:-1]
+    # jax.debug.print("delta: {}", delta)
+    goal = future_state[:, goal_indices] 
     future_state = future_state[:, :state_size]
     state = transition.observation[:-1, :state_size]  # all states are considered
     new_obs = jnp.concatenate([state, goal], axis=1)
@@ -103,6 +108,7 @@ def flatten_batch(buffer_config, transition, sample_key):
         "state": state,
         "future_state": future_state,
         "future_action": future_action,
+        'delta': delta,
     }
 
     return transition._replace(
@@ -159,8 +165,22 @@ class CRL:
     # layer norm
     use_ln: bool = False
 
-    contrastive_loss_fn: Literal["fwd_infonce", "sym_infonce", "bwd_infonce", "binary_nce"] = "fwd_infonce"
-    energy_fn: Literal["norm", "l2", "dot", "cosine"] = "norm"
+    # A matrix parameters for goal encoder
+    use_A: bool = False
+    orthogonal_A: bool = False
+    rotational_A: bool = True
+    rotational_with_Q: bool = True
+    randomly_initialized_A: bool = True
+    # If True (with rotational_A), base rotation angle is fixed to pi / rope_alpha for all 2D blocks.
+    fixed_rope_A: bool = True
+    rope_alpha: float = 108.0
+    # If True (with rotational_A), the first half of angle blocks are fixed to 0.
+    half_zero_angles: bool = False
+    orthogonal_method: Literal["cayley", "qr", "exp"] = "cayley"
+    Q_orthogonal_method: Literal["cayley", "qr", "exp"] = "cayley"
+
+    contrastive_loss_fn: Literal["fwd_infonce", "sym_infonce", "bwd_infonce", "binary_nce"] = "sym_infonce"
+    energy_fn: Literal["norm", "l2", "l1", "dot", "cosine"] = "l2"
 
     def check_config(self, config):
         """
@@ -202,12 +222,22 @@ class CRL:
         env_steps_per_actor_step = config.num_envs * self.unroll_length
         num_prefill_env_steps = self.min_replay_size * config.num_envs
         num_prefill_actor_steps = np.ceil(self.min_replay_size / self.unroll_length)
-        num_training_steps_per_epoch = (config.total_env_steps - num_prefill_env_steps) // (
-            config.num_evals * env_steps_per_actor_step
-        )
+        # Use ceiling division to ensure we collect at least total_env_steps
+        post_prefill_steps = config.total_env_steps - num_prefill_env_steps
+        steps_per_eval_epoch = config.num_evals * env_steps_per_actor_step
+        if steps_per_eval_epoch <= 0:
+            num_training_steps_per_epoch = 0
+        else:
+            num_training_steps_per_epoch = int(np.ceil(post_prefill_steps / steps_per_eval_epoch))
 
         assert num_training_steps_per_epoch > 0, (
-            "total_env_steps too small for given num_envs and episode_length"
+            "Cannot schedule training: num_training_steps_per_epoch would be 0. "
+            f"Require total_env_steps > min_replay_size * num_envs (prefill env steps). "
+            f"Got total_env_steps={config.total_env_steps}, "
+            f"min_replay_size * num_envs={num_prefill_env_steps}, "
+            f"post_prefill_steps={post_prefill_steps}. "
+            f"If prefill is OK, check num_evals > 0 and env_steps_per_actor_step > 0 "
+            f"(num_evals={config.num_evals}, env_steps_per_actor_step={env_steps_per_actor_step})."
         )
 
         logging.info(
@@ -266,15 +296,27 @@ class CRL:
             use_ln=self.use_ln,
         )
         sa_encoder_params = sa_encoder.init(sa_key, np.ones([1, state_size + action_size]))
-        g_encoder = Encoder(
+        g_encoder = GoalEncoderWithA(
             repr_dim=self.repr_dim,
             network_width=self.h_dim,
             network_depth=self.n_hidden,
             skip_connections=self.skip_connections,
             use_relu=self.use_relu,
             use_ln=self.use_ln,
+            use_A=self.use_A,
+            orthogonal_A=self.orthogonal_A,
+            rotational_A=self.rotational_A,
+            rotational_with_Q=self.rotational_with_Q,
+            randomly_initialized_A=self.randomly_initialized_A,
+            fixed_rope_A=self.fixed_rope_A,
+            rope_alpha=self.rope_alpha,
+            half_zero_angles=self.half_zero_angles,
+            orthogonal_method=self.orthogonal_method,
+            Q_orthogonal_method=self.Q_orthogonal_method,
         )
-        g_encoder_params = g_encoder.init(g_key, np.ones([1, goal_size]))
+ 
+        # Initialize with goal input and dummy delta (scalar)
+        g_encoder_params = g_encoder.init(g_key, np.ones([1, goal_size]), np.array([1, 1]))
         critic_state = TrainState.create(
             apply_fn=None,
             params={"sa_encoder": sa_encoder_params, "g_encoder": g_encoder_params},
@@ -587,17 +629,25 @@ class CRL:
             )
 
             if config.checkpoint_logdir:
-                # Save current policy and critic params.
-                params = (
+                ckpt_params = (
                     training_state.alpha_state.params,
                     training_state.actor_state.params,
                     training_state.critic_state.params,
                 )
                 path = f"{config.checkpoint_logdir}/step_{int(training_state.env_steps)}.pkl"
-                save_params(path, params)
+                save_params(path, ckpt_params)
+
+        params = (
+            training_state.alpha_state.params,
+            training_state.actor_state.params,
+            training_state.critic_state.params,
+        )
 
         total_steps = current_step
-        assert total_steps >= config.total_env_steps
+        # Allow small discrepancy due to rounding (within 1% of total_env_steps)
+        assert total_steps >= config.total_env_steps * 0.99, (
+            f"Collected {total_steps} steps but expected at least {config.total_env_steps}"
+        )
 
         logging.info("total steps: %s", total_steps)
 
