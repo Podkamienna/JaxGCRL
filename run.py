@@ -47,11 +47,13 @@ def main(config: Config):
 
     logging.info("Arguments:\n%s", pprint.pformat(info))
 
+    tags = [t.strip() for t in (config.run.wandb_tags or "").split(",") if t.strip()]
     wandb.init(
         project=config.run.wandb_project_name,
         group=config.run.wandb_group,
         name=config.run.exp_name,
         config=info,
+        tags=tags or None,
         mode="online" if config.run.log_wandb else "disabled",
     )
 
@@ -86,6 +88,13 @@ def main(config: Config):
         "training/critic_loss",
         "training/entropy",
         "training/sps",
+        "training/A_angles_mean_rad",
+        "training/A_angles_std_rad",
+        "training/A_angles_mean_deg",
+        "training/A_angles_std_deg",
+        "training/A_matrix_mean",
+        "training/A_matrix_mean_abs",
+        "training/A_matrix_frobenius",
     ]
 
     metrics_recorder = MetricsRecorder(

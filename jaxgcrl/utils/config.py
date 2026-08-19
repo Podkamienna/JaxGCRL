@@ -71,6 +71,9 @@ class RunConfig:
     # online or offline
     wandb_mode: Literal["online", "offline"] = "online"
 
+    # Comma-separated W&B tags (applied to every run). Use one unique grid tag for filtering.
+    wandb_tags: str = ""
+
     # render frequency
     visualization_interval: int = 5
 
