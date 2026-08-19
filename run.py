@@ -86,6 +86,13 @@ def main(config: Config):
         "training/critic_loss",
         "training/entropy",
         "training/sps",
+        "training/A_angles_mean_rad",
+        "training/A_angles_std_rad",
+        "training/A_angles_mean_deg",
+        "training/A_angles_std_deg",
+        "training/A_matrix_mean",
+        "training/A_matrix_mean_abs",
+        "training/A_matrix_frobenius",
     ]
 
     metrics_recorder = MetricsRecorder(

@@ -131,9 +131,19 @@ class ActorEvaluator:
                         "reward",
                         "success",
                         "success_easy",
+                        "success_hard",
                         "dist",
                         "distance_from_origin",
+                        "reward_forward",
+                        "reward_survive",
+                        "reward_ctrl",
+                        "reward_contact",
+                        "reward_near",
+                        "reward_dist",
+                        "x_position",
+                        "y_position",
                     ]
+                    if name in eval_metrics.episode_metrics
                 }
             )
 
